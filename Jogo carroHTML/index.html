@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Race Car - Mod</title>
+<style>
+    body { margin: 0; overflow: hidden; background-image: url("https://tse4.mm.bing.net/th/id/OIP.I4OyHCHziIjHJZYeMybaagHaEJ?cb=12&w=626&h=351&rs=1&pid=ImgDetMain&o=7&rm=3"); background-repeat: no-repeat; background-size: cover; background-position: center; font-family: Arial, sans-serif; }
+    #meu_canvas { display: block; background-color: rgba(0,0,0,0.8); margin: 0 auto; }
+    #pontuacao { position: absolute; top: 10px; left: 10px; font-size: 24px; color: #fff; }
+    #menu { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #fff; font-size: 24px; }
+    #menu button { padding: 10px 20px; font-size: 20px; margin: 5px; cursor: pointer; }
+    #car-select { margin-bottom: 10px; }
+    .car-option { width: 80px; height: 80px; object-fit: contain; border: 2px solid transparent; margin: 0 5px; cursor: pointer; }
+    .car-option.selected { border-color: yellow; }
+</style>
+</head>
+<body>
+<canvas id="meu_canvas"></canvas>
+
+<div id="menu">
+    <p>Escolha seu carro:</p>
+    <!-- miniaturas para trocar a imagem do carro -->
+    <div id="car-select">
+        <img class="car-option selected" src="https://images.vexels.com/media/users/3/200774/isolated/preview/e0ea41bf5ace04915641ff881d587850-pixel-verde-do-carro-do-ve-iacute-culo-by-vexels.png" data-src="https://images.vexels.com/media/users/3/200774/isolated/preview/e0ea41bf5ace04915641ff881d587850-pixel-verde-do-carro-do-ve-iacute-culo-by-vexels.png" alt="Carro Verde">
+        <img class="car-option" src="https://images.vexels.com/media/users/3/200775/isolated/lists/a07e43c30c7bf218fe156dcbaadc8e48-pixel-vermelho-do-carro-do-veiculo.png" data-src="https://images.vexels.com/media/users/3/200775/isolated/lists/a07e43c30c7bf218fe156dcbaadc8e48-pixel-vermelho-do-carro-do-veiculo.png" alt="Carro Vermelho">
+        <!-- adiciona mais miniaturas se quiser -->
+    </div>
+
+    <p>Escolha a dificuldade:</p>
+    <button onclick="iniciarJogo('facil')">Fácil</button>
+    <button onclick="iniciarJogo('medio')">Médio</button>
+    <button onclick="iniciarJogo('dificil')">Difícil</button>
+    <p style="font-size:12px; margin-top:8px;">(clique no carro para trocar a aparência)</p>
+</div>
+
+<div id="pontuacao">Pontuação: 0</div>
+
+<script>
+/* -----------------------
+   ÁUDIO - coloque aqui os caminhos corretos (mp3/ogg/wav)
+   Exemplo: 'sounds/engine_loop.mp3' ou uma URL completa
+   ----------------------- */
+const audioMenu = new Audio('mixkit-tactical-drone-ambience-2744.wav');       // som ao iniciar no menu (play quando escolher)
+const audioEngine = new Audio('mixkit-sports-bike-engine-2728.wav'); // loop do motor (play quando o jogo começar)
+const audioPassou = new Audio('sounds/passou.mp3');   // som quando obstáculo passa (pontos)
+const audioColisao = new Audio('collision-83248.mp3'); // som de colisão / morte
+
+// configura loop do motor
+audioEngine.loop = true;
+
+// OBS: se quiser múltiplos efeitos sobrepostos (vários "passou" seguidos), use cloneNode() quando for tocar
+function playEffect(audio) {
+    try {
+        const s = audio.cloneNode();
+        s.play();
+    } catch(e) {
+        // falha por autoplay ou outro; nada crítico
+        console.warn('Falha ao tocar audio:', e);
+    }
+}
+
+/* -----------------------
+   CANVAS e IMAGENS
+   ----------------------- */
+const canvas = document.getElementById("meu_canvas");
+const ctx = canvas.getContext('2d');
+canvas.width = 480;
+canvas.height = 600;
+
+// imagem do carro principal (será trocada quando o usuário clicar nas miniaturas)
+const imgCarro = new Image();
+// default (já definido abaixo nas miniaturas)
+imgCarro.src = document.querySelector('.car-option.selected').dataset.src;
+
+// imagem do obstáculo (pode trocar também se quiser)
+const imgObstaculo = new Image();
+imgObstaculo.src = "https://images.vexels.com/media/users/3/200775/isolated/lists/a07e43c30c7bf218fe156dcbaadc8e48-pixel-vermelho-do-carro-do-veiculo.png";
+
+/* -----------------------
+   Lógica do jogo (mantive tua estrutura, só com pequenas melhorias)
+   ----------------------- */
+let jogoAtivo = false;
+let pontuacao = 0;
+let carro, obstaculos = [], teclado = {};
+let velocidadeObstaculo = 5;
+let intervaloObstaculos = 60;
+let contadorObstaculos = 0;
+let pontosParaAumentarVelocidade = 60;
+
+function iniciarJogo(dificuldade) {
+    jogoAtivo = true;
+    document.getElementById("menu").style.display = "none";
+    pontuacao = 0;
+    obstaculos = [];
+    teclado = {};
+    contadorObstaculos = 0;
+
+    // tocar som de menu (feedback) e ligar o motor (engine) quando iniciar
+    try { audioMenu.currentTime = 0; audioMenu.play(); } catch(e) {}
+    try { audioEngine.currentTime = 0; audioEngine.play(); } catch(e) {}
+
+    switch(dificuldade){
+        case 'facil':
+            velocidadeObstaculo = 3;
+            intervaloObstaculos = 80;
+            break;
+        case 'medio':
+            velocidadeObstaculo = 6;
+            intervaloObstaculos = 60;
+            break;
+        case 'dificil':
+            velocidadeObstaculo = 10;
+            intervaloObstaculos = 40;
+            break;
+        default:
+            velocidadeObstaculo = 5;
+            intervaloObstaculos = 60;
+    }
+
+    carro = {
+        x: canvas.width/2 - 45,
+        y: canvas.height - 120,
+        largura: 90,
+        altura: 90,
+        velocidade: 8
+    };
+
+    atualizarJogo();
+}
+
+function desenharCarro() {
+    ctx.drawImage(imgCarro, carro.x, carro.y, carro.largura, carro.altura);
+}
+
+function moverCarro() {
+    if (teclado["ArrowLeft"] && carro.x > 0) carro.x -= carro.velocidade;
+    if (teclado["ArrowRight"] && carro.x < canvas.width - carro.largura) carro.x += carro.velocidade;
+}
+
+function gerarObstaculos() {
+    if (contadorObstaculos <= 0) {
+        const tamanho = 90;
+        const x = Math.random() * (canvas.width - tamanho);
+        obstaculos.push({x: x, y: -tamanho, largura: tamanho, altura: tamanho});
+        contadorObstaculos = intervaloObstaculos;
+    } else {
+        contadorObstaculos--;
+    }
+}
+
+function desenharObstaculos() {
+    for (let o of obstaculos) {
+        ctx.drawImage(imgObstaculo, o.x, o.y, o.largura, o.altura);
+    }
+}
+
+function moverObstaculos() {
+    let pontosGanhos = 0;
+    obstaculos = obstaculos.filter(o => {
+        o.y += velocidadeObstaculo;
+        if (o.y > canvas.height) {
+            // tocar som de "passou" usando clone pra sobrepor
+            playEffect(audioPassou);
+            pontosGanhos += 10;
+            return false;
+        }
+        return true;
+    });
+    if (pontosGanhos > 0) {
+        pontuacao += pontosGanhos;
+        document.getElementById("pontuacao").innerText = "Pontuação: " + pontuacao;
+        if (pontuacao % pontosParaAumentarVelocidade === 0) velocidadeObstaculo++;
+    }
+}
+
+function verificarColisoes() {
+    const margem = 5;
+    for (let o of obstaculos) {
+        if (
+            carro.x + margem < o.x + o.largura - margem &&
+            carro.x + carro.largura - margem > o.x + margem &&
+            carro.y + margem < o.y + o.altura - margem &&
+            carro.y + carro.altura - margem > o.y + margem
+        ) {
+            // colisão: parar engine e tocar som de colisão
+            try { audioEngine.pause(); audioEngine.currentTime = 0; } catch(e){}
+            playEffect(audioColisao);
+            alert("Você perdeu");
+            reiniciarJogo();
+            break;
+        }
+    }
+}
+
+function atualizarJogo() {
+    if (!jogoAtivo) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    moverCarro();
+    gerarObstaculos();
+    moverObstaculos();
+    verificarColisoes();
+    desenharCarro();
+    desenharObstaculos();
+    requestAnimationFrame(atualizarJogo);
+}
+
+function reiniciarJogo() {
+    jogoAtivo = false;
+    pontuacao = 0;
+    document.getElementById("pontuacao").innerText = "Pontuação: 0";
+    document.getElementById("menu").style.display = "block";
+    try { audioEngine.pause(); audioEngine.currentTime = 0; } catch(e){}
+}
+
+/* -----------------------
+   controles do teclado
+   ----------------------- */
+window.addEventListener("keydown", e => teclado[e.key] = true);
+window.addEventListener("keyup", e => teclado[e.key] = false);
+
+/* -----------------------
+   lógica para trocar carro clicando na miniatura
+   - cada miniatura tem atributo data-src com a URL da imagem
+   ----------------------- */
+const carOptions = document.querySelectorAll('.car-option');
+carOptions.forEach(el => {
+    el.addEventListener('click', () => {
+        // remove classe selected das outras
+        carOptions.forEach(x => x.classList.remove('selected'));
+        el.classList.add('selected');
+        // troca a imagem do carro principal
+        const nova = el.dataset.src;
+        imgCarro.src = nova;
+        // opcional: reduzir ou aumentar carro dependendo da imagem (ajusta tamanho se quiser)
+    });
+});
+</script>
+</body>
+</html>
